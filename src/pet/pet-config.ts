@@ -185,6 +185,20 @@ export const PRESET_SESSION_ANIMATIONS: Record<string, string> = {
 }
 
 /**
+ * 是否应优先使用 stacked-alpha（堆叠透明视频）资产。
+ *
+ * 判定依据是渲染引擎而非操作系统：WKWebView/WebKitGTK（macOS Tauri 桌宠窗口、
+ * Linux WebKitGTK）不支持 VP9-alpha 透明 WebM（解码丢 alpha 平面 → 黑底，见
+ * issue #434）；Chromium（Windows WebView2）原生支持 VP9-alpha，走 webm 即可。
+ * UA 无 Chrome/Chromium/Edg 标记的 AppleWebKit 即 WebKit 系（Safari 类 UA）。
+ *
+ * 纯函数，可单测；调用方传 navigator.userAgent。
+ */
+export function isStackedAlphaPreferred(ua: string): boolean {
+  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg\//i.test(ua)
+}
+
+/**
  * 预设宠物：把播放状态解析为实际动画名（webm 文件名主名，如 待机呼吸休闲）。
  * - 活动名本身就是可播放动画名（adHoc 池条目 / 会话状态映射名）时直接命中资产；
  * - 会话状态（waiting/running/review/failed/bubble）经 PRESET_SESSION_ANIMATIONS

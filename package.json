@@ -38,6 +38,7 @@
     "react-if-lite": "catalog:runtime",
     "react-use": "catalog:runtime",
     "semver": "catalog:runtime",
+    "stacked-alpha-video": "catalog:runtime",
     "tailwind-variants": "catalog:runtime",
     "valtio-define": "catalog:runtime"
   },

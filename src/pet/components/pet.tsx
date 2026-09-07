@@ -5,11 +5,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { If } from 'react-if-lite'
+import { Else, If, Then } from 'react-if-lite'
 import { PET_STATUSES } from '../hooks/use-pet'
 import {
   fallbackPresetName,
   isLoopingAnimation,
+  isStackedAlphaPreferred,
   pick,
   pickCategoryAction,
   poolEntryToStatus,
@@ -17,8 +18,18 @@ import {
   rollKind,
   spriteStatusFallback,
 } from '../pet-config'
+// stacked-alpha-video 自定义元素（副作用注册 <stacked-alpha-video> + HTMLElementTagNameMap）；
+// 类型声明见 src/pet/stacked-alpha-video.d.ts。
+import 'stacked-alpha-video'
 
 const PET_BASE_WIDTH = 220
+/**
+ * 当前渲染引擎是否不用 VP9-alpha WebM（WKWebView/WebKitGTK）→ 预设宠物改用
+ * stacked-alpha 堆叠视频（上半颜色 + 下半 alpha，WebGL shader 合成透明，见
+ * src/pet/stacked-alpha-video.d.ts 与 issue #434）。UA 判定与 pet-config
+ * isStackedAlphaPreferred 保持一致；窗口引擎进程内不变，作模块级常量。
+ */
+const STACKED_ALPHA_PREFERRED = isStackedAlphaPreferred(globalThis.navigator?.userAgent ?? '')
 /** 已安装预设被清理/未安装时的提示文案：桌宠窗口无 i18n 基础设施（气泡文案同样硬编码），按窗口语言就近显示。 */
 const PRESET_MISSING_HINT = (document.documentElement.lang || navigator.language || 'zh-CN').toLowerCase().startsWith('zh')
   ? '预设宠物未安装，请在设置中下载'
@@ -107,12 +118,14 @@ export function Pet(props: PetProps) {
   const adHocRef = useRef(adHoc)
   adHocRef.current = adHoc
   const adHocSeqRef = useRef(0)
-  // 预设宠物资源（config.jsonc + webm manifest）：按宠物 id 一起拉取并整体更新，
+  // 预设宠物资源（config.jsonc + webm/stacked manifest）：按宠物 id 一起拉取并整体更新，
   // 避免切换宠物时残留上一个宠物的动画池/URL（旧数据在 fetch 完成前不生效）。
   const [petResources, setPetResources] = useState<{
     pet: string
     config: PetConfig | null
     assets: Record<string, string>
+    /** stacked-alpha 堆叠视频 manifest（name → stacked/ 子目录 URL）；WebKit 渲染引擎优先取用。 */
+    stacked: Record<string, string>
     /** 预设资源拉取失败的错误信息（如 PET_PRESET_NOT_INSTALLED）；null = 成功。 */
     error: string | null
   } | null>(null)
@@ -135,11 +148,23 @@ export function Pet(props: PetProps) {
   const isPreset = !activePet.includes(':')
   // 预设宠物资源按当前激活宠物生效：切换宠物时旧资源保持到新 fetch 完成，避免闪烁。
   // 统一 memo 成稳定的 config/assets 引用，避免每次渲染产生新对象导致视频 effect 重跑。
+  // assets 为「当前引擎有效资产表」：WebKit（STACKED_ALPHA_PREFERRED）且安装含 stacked
+  // 清单时 = stacked 覆盖视图（透明播放），否则 = webm 视图。fallback 兜底图（gif）两
+  // 视图都保留；WebKit 下缺失 stacked 版本的动画名在合成表里不存在 → resolvePresetName
+  // 自然返回 null/降级，绝不在 WebKit 下播放黑底 webm（issue #434）。
   const { config, assets, error } = useMemo(() => {
     const preset = petResources !== null && petResources.pet === activePet ? petResources : null
+    const webmAssets = preset?.assets ?? {}
+    const stackedAssets = preset?.stacked ?? {}
+    const assets = STACKED_ALPHA_PREFERRED && Object.keys(stackedAssets).length > 0
+      ? {
+          ...stackedAssets,
+          ...(webmAssets.fallback !== undefined ? { fallback: webmAssets.fallback } : {}),
+        }
+      : webmAssets
     return {
       config: preset?.config ?? null,
-      assets: preset?.assets ?? {},
+      assets,
       error: preset?.error ?? null,
     }
   }, [activePet, petResources])
@@ -226,16 +251,16 @@ export function Pet(props: PetProps) {
         loadError ??= String(error)
         return null
       }),
-      invoke<{ assets?: Record<string, string> }>('get_preset_pet_assets', { id: activePet }).catch((error) => {
+      invoke<{ assets?: Record<string, string>, stacked?: Record<string, string> }>('get_preset_pet_assets', { id: activePet }).catch((error) => {
         console.warn('[pet] PET_PRESET_ASSETS_LOAD_FAILED:', error)
         loadError ??= String(error)
-        return { assets: {} }
+        return { assets: {}, stacked: {} }
       }),
     ]).then(([config, value]) => {
       if (disposed)
         return
       // 一起提交，避免 config 与 assets 不同步导致短暂按旧池解析。
-      setPetResources({ pet: activePet, config, assets: value.assets ?? {}, error: loadError })
+      setPetResources({ pet: activePet, config, assets: value.assets ?? {}, stacked: value.stacked ?? {}, error: loadError })
     })
     return () => {
       disposed = true
@@ -526,25 +551,60 @@ export function Pet(props: PetProps) {
           .dsh-pet-hit 一致），事件从命中区冒泡到 app.tsx 的 dragRef 壳触发拖拽。 */}
       <div className="pointer-events-none relative h-[calc(var(--pet-width)*var(--pet-aspect))] w-[var(--pet-width)] select-none">
         <If cond={isPreset}>
-          {/* 双 video 缓冲：前台 opacity-100 淡入、后台 opacity-0 淡出，
-              切换经 loadeddata 就绪后交换（见开关 effect），无空窗/黑帧闪跳。
-              视频均 pointer-events-none，避免截获命中区外的点击。 */}
-          <video
-            ref={videoARef}
-            className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 0 ? 'opacity-100' : 'opacity-0'}`}
-            muted
-            playsInline
-            preload="auto"
-            onError={() => setFailed(true)}
-          />
-          <video
-            ref={videoBRef}
-            className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 1 ? 'opacity-100' : 'opacity-0'}`}
-            muted
-            playsInline
-            preload="auto"
-            onError={() => setFailed(true)}
-          />
+          <If cond={STACKED_ALPHA_PREFERRED}>
+            {/* WebKit（macOS WKWebView / Linux WebKitGTK）不支持 VP9-alpha webm（黑底，
+                issue #434）：改用 stacked-alpha 堆叠视频。组件内部是 shadow canvas +
+                无 slot 的 light <video>（只解码不渲染），我们把 opacity 过渡放在宿主
+                上（canvas 随宿主淡入淡出）；<video> 仍是双缓冲 effect 的直接操作对象
+                （src/loop/onended/load/loadeddata/play/pause 全部不变）。 */}
+            <Then>
+              <stacked-alpha-video
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 0 ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <video
+                  ref={videoARef}
+                  className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                  muted
+                  playsInline
+                  preload="auto"
+                  onError={() => setFailed(true)}
+                />
+              </stacked-alpha-video>
+              <stacked-alpha-video
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 1 ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <video
+                  ref={videoBRef}
+                  className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                  muted
+                  playsInline
+                  preload="auto"
+                  onError={() => setFailed(true)}
+                />
+              </stacked-alpha-video>
+            </Then>
+            <Else>
+              {/* 双 video 缓冲（Chromium/WebView2，VP9-alpha webm 原生支持）：前台
+                   opacity-100 淡入、后台 opacity-0 淡出，切换经 loadeddata 就绪后交换
+                   （见开关 effect），无空窗/黑帧闪跳。视频均 pointer-events-none。 */}
+              <video
+                ref={videoARef}
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 0 ? 'opacity-100' : 'opacity-0'}`}
+                muted
+                playsInline
+                preload="auto"
+                onError={() => setFailed(true)}
+              />
+              <video
+                ref={videoBRef}
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${frontIdx === 1 ? 'opacity-100' : 'opacity-0'}`}
+                muted
+                playsInline
+                preload="auto"
+                onError={() => setFailed(true)}
+              />
+            </Else>
+          </If>
         </If>
         <If cond={!isPreset && hasCustomAsset}>
           <div

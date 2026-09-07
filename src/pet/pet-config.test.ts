@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   fallbackPresetName,
   isLoopingAnimation,
+  isStackedAlphaPreferred,
   pick,
   pickCategoryAction,
   pickWeightedCategory,
@@ -189,6 +190,27 @@ describe('resolvePresetName', () => {
   it('returns null when the pool entry is not backed by an asset', () => {
     expect(resolvePresetName('idle', { ...pools, idlePool: ['不存在.webm'] }, assets)).toBeNull()
     expect(resolvePresetName('idle', { ...pools, idlePool: [] }, assets)).toBeNull()
+  })
+})
+
+describe('isStackedAlphaPreferred', () => {
+  it('返回 true（WebKit 系：macOS WKWebView / Linux WebKitGTK）', () => {
+    // macOS WKWebView（Tauri macOS 桌宠窗口）
+    expect(isStackedAlphaPreferred('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15')).toBe(true)
+    // 旧版 macOS WKWebView UA
+    expect(isStackedAlphaPreferred('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15')).toBe(true)
+  })
+
+  it('返回 false（Chromium 系：Windows WebView2 / Electron）', () => {
+    // Windows WebView2（Tauri Windows 桌宠窗口）
+    expect(isStackedAlphaPreferred('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0')).toBe(false)
+    // Electron（dsh-pet 上游桌面模式）
+    expect(isStackedAlphaPreferred('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) dsh-pet/1.0.0 Chrome/128.0.0.0 Safari/537.36')).toBe(false)
+  })
+
+  it('非 WebKit UA 返回 false', () => {
+    expect(isStackedAlphaPreferred('')).toBe(false)
+    expect(isStackedAlphaPreferred('curl/8.0.1')).toBe(false)
   })
 })
 

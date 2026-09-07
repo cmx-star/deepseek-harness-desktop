@@ -904,10 +904,18 @@ const PRESET_ASSET_ORIGIN: &str = "http://dsh-pet.localhost";
 #[cfg(not(target_os = "windows"))]
 const PRESET_ASSET_ORIGIN: &str = "dsh-pet://localhost";
 
-/// 预设宠物媒体 URL manifest（name → URL；name 为 webm 文件主名，URL 经 dsh-pet 协议按需流式提供）。
+/// 预设宠物媒体 URL manifest（name → URL；name 为媒体文件主名，URL 经 dsh-pet 协议按需流式提供）。
+///
+/// 两组映射：
+/// - `assets`：VP9-alpha webm（Chromium/WebView2 原生支持 alpha，Windows/Linux 走此组）+ preview gif 兜底；
+/// - `stacked`：stacked-alpha 堆叠视频（普通不透明编码的 mp4，上半颜色下半 alpha 亮度，由前端 WebGL
+///   shader 合成透明）——macOS WKWebView 不认 VP9-alpha（渲染黑底，issue #434），需要此组资产。
+///   同一动画名在两个映射中的 URL 指向不同子目录（webm/ 与 stacked/），前端按平台选择。
 #[derive(Debug, Clone, Serialize)]
 pub struct PresetPetAssets {
     pub assets: BTreeMap<String, String>,
+    #[serde(default)]
+    pub stacked: BTreeMap<String, String>,
 }
 
 /// 只对非保留字符做百分号编码（UTF-8 逐字节），其余原样保留：视频文件名含中文时
@@ -948,10 +956,10 @@ fn percent_decode_segment(value: &str) -> Result<String, String> {
         .map_err(|_| "PET_PRESET_ASSET_PATH_INVALID: asset name is not valid UTF-8".to_string())
 }
 
-/// 已安装预设宠物目录下的受控相对路径（webm/ 或 preview/ 单层子目录内）。
+/// 已安装预设宠物目录下的受控相对路径（webm/、preview/ 或 stacked/ 单层子目录内）。
 fn resolve_preset_asset(app: &AppHandle, id: &str, subdir: &str, name: &str) -> Result<PathBuf, String> {
-    if !matches!(subdir, "webm" | "preview") {
-        return Err("PET_PRESET_ASSET_PATH_INVALID: subdir must be webm or preview".to_string());
+    if !matches!(subdir, "webm" | "preview" | "stacked") {
+        return Err("PET_PRESET_ASSET_PATH_INVALID: subdir must be webm, preview or stacked".to_string());
     }
     let root = preset_pets_root(app);
     let dir = installed_dir(&root, id);
@@ -1038,9 +1046,9 @@ pub fn preset_pet_asset_response(
         return protocol_error(StatusCode::FORBIDDEN, "PET_PRESET_ASSET_PATH_INVALID: asset name is not a safe relative path");
     };
     if relative.components().count() != 1
-        || !matches!(name.rsplit_once('.').map(|(_, ext)| ext), Some("webm" | "gif"))
+        || !matches!(name.rsplit_once('.').map(|(_, ext)| ext), Some("webm" | "mp4" | "gif"))
     {
-        return protocol_error(StatusCode::FORBIDDEN, "PET_PRESET_ASSET_PATH_INVALID: asset must be a single webm/gif file");
+        return protocol_error(StatusCode::FORBIDDEN, "PET_PRESET_ASSET_PATH_INVALID: asset must be a single webm/mp4/gif file");
     }
     let path = match resolve_preset_asset(app, id, subdir, &name) {
         Ok(path) => path,
@@ -1052,7 +1060,11 @@ pub fn preset_pet_asset_response(
     let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
         return protocol_error(StatusCode::NOT_FOUND, "PET_PRESET_ASSET_READ_FAILED: asset metadata unavailable");
     };
-    let mime = if name.ends_with(".webm") { "video/webm" } else { "image/gif" };
+    let mime = match name.rsplit_once('.').map(|(_, ext)| ext) {
+        Some("webm") => "video/webm",
+        Some("mp4") => "video/mp4",
+        _ => "image/gif",
+    };
     let base = Response::builder()
         .header("Content-Type", mime)
         .header("Accept-Ranges", "bytes");
@@ -1109,8 +1121,8 @@ fn parse_single_byte_range(value: &str, length: u64) -> Option<(u64, u64)> {
     (end >= start).then_some((start, end))
 }
 
-/// 列出已安装预设宠物的全部媒体（webm 动画 + preview 首张 gif 兜底图）。
-/// 池条目（config.jsonc 里的动画名）即 webm 文件名主名，与 dsh-pet 协议一致。
+/// 列出已安装预设宠物的全部媒体（webm 动画 + stacked-alpha 堆叠视频 + preview 首张 gif 兜底图）。
+/// 池条目（config.jsonc 里的动画名）即媒体文件主名，与 dsh-pet 协议一致。
 #[tauri::command]
 pub fn get_preset_pet_assets(app: AppHandle, id: String) -> Result<PresetPetAssets, String> {
     let id = id.trim();
@@ -1145,6 +1157,33 @@ pub fn get_preset_pet_assets(app: AppHandle, id: String) -> Result<PresetPetAsse
             assets.insert(stem, url);
         }
     }
+    // stacked-alpha 堆叠视频（mp4）：与 webm 同名主键、独立 stacked/ 子目录，按平台选源。
+    // 资产缺失时该组为空，前端天然回落到 webm（Chromium）或无动画（macOS 无 stacked 资产时保持透明，
+    // 不出现黑底——见 issue #434）。文件名依 vstack 后是单视频流，无需区分编码。
+    let stacked_dir = dir.join("stacked");
+    let mut stacked = BTreeMap::new();
+    if stacked_dir.is_dir() {
+        let mut entries = fs::read_dir(&stacked_dir)
+            .map_err(|error| format!("PET_PRESET_ASSETS_READ_FAILED: failed to list {}: {error}", stacked_dir.display()))?;
+        let mut files = Vec::new();
+        while let Some(entry) = entries.next() {
+            let entry = entry.map_err(|error| format!("PET_PRESET_ASSETS_READ_FAILED: {error}"))?;
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else { continue };
+            if name.ends_with(".mp4") || name.ends_with(".webm") {
+                files.push(name.to_string());
+            }
+        }
+        files.sort();
+        for file in files {
+            let stem = file.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&file).to_string();
+            let url = format!(
+                "{PRESET_ASSET_ORIGIN}/{id}/stacked/{}",
+                percent_encode_segment(&file)
+            );
+            stacked.insert(stem, url);
+        }
+    }
     // 兜底图：preview 目录第一张 gif（按文件名排序，与 dsh-pet preview 语义一致）。
     let preview_dir = dir.join("preview");
     if preview_dir.is_dir() {
@@ -1168,7 +1207,7 @@ pub fn get_preset_pet_assets(app: AppHandle, id: String) -> Result<PresetPetAsse
             assets.insert("fallback".to_string(), url);
         }
     }
-    Ok(PresetPetAssets { assets })
+    Ok(PresetPetAssets { assets, stacked })
 }
 
 /// 统一预设配置校验错误前缀。
