@@ -47,7 +47,20 @@ pub async fn install(
         .get_webview_window("main")
         .ok_or("Failed to get main window")?;
     log::debug!("Main window obtained");
-    let mut tasks: Vec<Box<dyn download::Installable>> = vec![
+    #[cfg(windows)]
+    let tasks: Vec<Box<dyn download::Installable>> = {
+        let mut tasks: Vec<Box<dyn download::Installable>> = vec![
+            Box::new(download::Nodejs),
+            Box::new(download::Dsh),
+            Box::new(download::Pnpm),
+        ];
+        // Windows Sandbox 等空白环境没有 Git；若系统 Git 可真实执行则 Installable 会跳过，
+        // 不重复下载也不修改系统 PATH。
+        tasks.push(Box::new(download::Git));
+        tasks
+    };
+    #[cfg(not(windows))]
+    let tasks: Vec<Box<dyn download::Installable>> = vec![
         Box::new(download::Nodejs),
         Box::new(download::Dsh),
         Box::new(download::Pnpm),
@@ -87,10 +100,6 @@ pub async fn install(
             }
         }
     }
-    // Windows Sandbox 等空白环境没有 Git；仅 Windows 加入第 4 项，若系统 Git
-    // 可真实执行则 Installable 会跳过，不重复下载也不修改系统 PATH。
-    #[cfg(windows)]
-    tasks.push(Box::new(download::Git));
     // 每项均有下载/解压两个阶段，按实际平台任务数计算，避免进度提前到 100%。
     let mut tracker = download::ProgressTracker::new(&window, tasks.len() * 2);
     log::info!("Task list created, {} tasks total", tasks.len());
@@ -189,12 +198,6 @@ pub async fn install(
             download::InstallKind::Pnpm => config::PNPM_SHA256.to_string(),
             #[cfg(windows)]
             download::InstallKind::Git => config::get_mingit_sha256()?.to_string(),
-            #[cfg(not(windows))]
-            download::InstallKind::Git => {
-                return Err(
-                    "INSTALL_TASK_INVALID: Git task not supported on this platform".to_string(),
-                )
-            }
         };
         download::verify_sha256(&buffer, &expected_digest)?;
         log::info!("Download integrity verified for task {}", index + 1);

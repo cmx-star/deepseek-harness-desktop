@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "taskId": "rust-warning-cross-platform-cleanup",
+  "title": "Rust warning cross-platform cleanup",
+  "status": "review",
+  "stage": "review",
+  "createdAt": "2026-09-07T07:54:04Z",
+  "updatedAt": "2026-09-07T08:08:55Z"
+}

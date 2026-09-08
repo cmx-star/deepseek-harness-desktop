@@ -16,9 +16,13 @@ mod write;
 pub use write::{is_generated_shim, user_dsh_preserved, write_shims};
 
 /// Windows 下 shim 文件名（cmd 为主入口，ps1 供 PowerShell 原生体验）
+#[cfg(windows)]
 pub const SHIM_CMD_NAME: &str = "dsh.cmd";
+#[cfg(windows)]
 pub const SHIM_PS1_NAME: &str = "dsh.ps1";
+#[cfg(windows)]
 pub const PNPM_SHIM_CMD_NAME: &str = "pnpm.cmd";
+#[cfg(windows)]
 pub const PNPM_SHIM_PS1_NAME: &str = "pnpm.ps1";
 
 /// Unix 下 shim 文件名
@@ -32,12 +36,14 @@ pub const PNPM_SHIM_SH_NAME: &str = "pnpm";
 // ---------------------------------------------------------------------------
 
 /// 批处理中 `%` 会被展开，需写成 `%%`
+#[cfg(windows)]
 #[inline]
 pub fn escape_path_cmd(path: &Path) -> String {
     path.to_string_lossy().replace('%', "%%")
 }
 
 /// 单引号字符串中 `'` 需翻倍
+#[cfg(windows)]
 #[inline]
 pub fn escape_path_ps1(path: &Path) -> String {
     path.to_string_lossy().replace('\'', "''")
@@ -96,6 +102,7 @@ mod tests {
     // escape_path_* 纯函数基线（与 shim 内嵌路径的场景一致）
     // ------------------------------------------------------------------
 
+    #[cfg(windows)]
     #[test]
     fn escape_path_cmd_doubles_percent() {
         assert_eq!(
@@ -105,6 +112,7 @@ mod tests {
         assert_eq!(escape_path_cmd(Path::new("/tmp/a b")), "/tmp/a b");
     }
 
+    #[cfg(windows)]
     #[test]
     fn escape_path_ps1_doubles_single_quotes() {
         assert_eq!(

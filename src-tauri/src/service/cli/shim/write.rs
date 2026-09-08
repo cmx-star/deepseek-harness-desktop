@@ -8,10 +8,14 @@ use tauri::AppHandle;
 #[cfg(not(windows))]
 #[allow(unused_imports)] // debug 构建 dsh shim 不写入；测试仍引用
 use super::build::build_sh_shim;
-#[allow(unused_imports)] // 构建函数在 debug 构建/异平台下由 cfg 裁剪，测试仍引用
+#[cfg(windows)]
+#[allow(unused_imports)] // release 写 dsh shim，debug 写 pnpm shim；测试仍引用
 use super::build::{
-    build_cmd_shim, build_pnpm_cmd_shim, build_pnpm_ps1_shim, build_pnpm_sh_shim, build_ps1_shim,
+    build_cmd_shim, build_pnpm_cmd_shim, build_pnpm_ps1_shim, build_ps1_shim,
 };
+#[cfg(not(windows))]
+#[allow(unused_imports)] // debug 构建 dsh shim 不写入；测试仍引用
+use super::build::build_pnpm_sh_shim;
 #[cfg(all(windows, not(debug_assertions)))]
 use super::SHIM_PS1_NAME;
 #[cfg(windows)]

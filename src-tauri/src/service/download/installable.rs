@@ -10,6 +10,7 @@ pub enum InstallKind {
     Node,
     Dsh,
     Pnpm,
+    #[cfg(windows)]
     Git,
 }
 

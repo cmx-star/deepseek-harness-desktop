@@ -13,6 +13,7 @@
 // 运行时。`DSH_NODE` 只在桌面端自身派生的子进程里存在，终端用户环境不受影响。
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
 pub(super) const CMD_NODE_RESOLVE: &str = r#"
 rem Prefer the desktop-resolved node (DSH_NODE, injected by the app into its
 rem own child processes), then a version-compatible local node, then the
@@ -54,6 +55,7 @@ set "NODE=%APP_DIR%\runtime\node.exe"
 set "PATH=%APP_DIR%\runtime;%PATH%"
 "#;
 
+#[cfg(windows)]
 pub(super) const PS1_NODE_RESOLVE: &str = r#"
 # Prefer the desktop-resolved node (DSH_NODE, injected by the app into its
 # own child processes), then a version-compatible local node, then the
@@ -135,6 +137,7 @@ fi
 // dsh shim，见 write_shims），debug 下这些常量/函数未使用，允许 dead_code。
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
 #[cfg_attr(debug_assertions, allow(dead_code))]
 pub(super) const CMD_USER_DSH_PRECEDENCE: &str = r#"
 rem Prefer a user-installed dsh on PATH (skip our own shim dir), fall back to bundled.
@@ -163,6 +166,7 @@ if defined USER_DSH (
 )
 "#;
 
+#[cfg(windows)]
 #[cfg_attr(debug_assertions, allow(dead_code))]
 pub(super) const PS1_USER_DSH_PRECEDENCE: &str = r#"
 # Prefer a user-installed dsh on PATH (skip our own shim dir), fall back to bundled.

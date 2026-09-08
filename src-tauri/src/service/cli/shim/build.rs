@@ -4,14 +4,17 @@
 
 use std::path::Path;
 
+#[cfg(windows)]
 use super::escape_path_cmd;
+#[cfg(windows)]
 use super::escape_path_ps1;
+#[cfg(not(windows))]
 use super::escape_path_sh;
 #[cfg(not(windows))]
-use super::templates::SH_USER_DSH_PRECEDENCE;
+use super::templates::{SH_NODE_RESOLVE, SH_USER_DSH_PRECEDENCE};
+#[cfg(windows)]
 use super::templates::{
     CMD_NODE_RESOLVE, CMD_USER_DSH_PRECEDENCE, PS1_NODE_RESOLVE, PS1_USER_DSH_PRECEDENCE,
-    SH_NODE_RESOLVE,
 };
 
 // ---------------------------------------------------------------------------
@@ -21,6 +24,7 @@ use super::templates::{
 /// Windows `dsh.cmd` 内容。`app_dir` 为应用数据目录（绝对路径，生成时写死），
 /// `dsh_home` 为官方 `$DSH_HOME`（release 为 `~/.dsh`，生成时写死，与桌面端/
 /// 官方一致）。
+#[cfg(windows)]
 #[cfg_attr(debug_assertions, allow(dead_code))] // 仅 release 构建写入 dsh shim
 pub fn build_cmd_shim(app_dir: &Path, dsh_home: &Path) -> String {
     let dsh_bin = app_dir.join("dependencies/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js");
@@ -62,6 +66,7 @@ exit /b 1
 }
 
 /// Windows `dsh.ps1` 内容
+#[cfg(windows)]
 #[cfg_attr(debug_assertions, allow(dead_code))] // 仅 release 构建写入 dsh shim
 pub fn build_ps1_shim(app_dir: &Path, dsh_home: &Path) -> String {
     let dsh_bin = app_dir.join("dependencies/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js");
@@ -149,6 +154,7 @@ exec "$NODE" "$DSH_BIN" "$@"
 /// 实现要点：
 /// - 不用 `findstr` 匹配路径（`\` 会被当正则转义导致过滤失效）；
 /// - 块内变量判断用 for 变量（`%%~xp`）而非 `%VAR%`（块解析时机陷阱）。
+#[cfg(windows)]
 pub fn build_pnpm_cmd_shim(app_dir: &Path) -> String {
     let pnpm_bin = app_dir.join("dependencies/pnpm/bin/pnpm.cjs");
 
@@ -229,6 +235,7 @@ exit /b 1
 /// Windows `pnpm.ps1` 内容：优先转发用户 pnpm（`Get-Command pnpm -All`，
 /// 排除本 shim 目录），否则用 node 运行捆绑 pnpm.cjs。
 /// `DSH_PREFER_BUNDLED_PNPM=1` 时捆绑版优先（见模块头注）。
+#[cfg(windows)]
 pub fn build_pnpm_ps1_shim(app_dir: &Path) -> String {
     let pnpm_bin = app_dir.join("dependencies/pnpm/bin/pnpm.cjs");
 
@@ -289,7 +296,7 @@ exit $LASTEXITCODE
 /// Unix `pnpm` shell 脚本内容（POSIX sh）：按 PATH 顺序转发第一个非本目录
 /// 的用户 pnpm，否则用 node 运行捆绑 pnpm.cjs。`DSH_PREFER_BUNDLED_PNPM=1`
 /// 时捆绑版优先（见模块头注）。
-#[cfg_attr(all(windows, not(test)), allow(dead_code))]
+#[cfg(not(windows))]
 pub fn build_pnpm_sh_shim(app_dir: &Path) -> String {
     let pnpm_bin = app_dir.join("dependencies/pnpm/bin/pnpm.cjs");
 
@@ -343,6 +350,7 @@ exec "$NODE" "$PNPM_BIN" "$@"
 mod tests {
     use super::super::test_util::{sample_app_dir, sample_dsh_home, temp_dir};
     use super::*;
+    #[cfg(windows)]
     use std::path::PathBuf;
 
     #[cfg(windows)]
@@ -356,6 +364,7 @@ mod tests {
         assert!(content.contains("%*"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn cmd_shim_escapes_percent() {
         let dir = PathBuf::from(
@@ -393,6 +402,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn pnpm_cmd_shim_contains_user_precedence() {
         let content = build_pnpm_cmd_shim(&sample_app_dir());
@@ -512,6 +522,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[cfg(windows)]
     #[test]
     fn pnpm_ps1_shim_contains_user_precedence() {
         let content = build_pnpm_ps1_shim(&sample_app_dir());
@@ -593,6 +604,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn pnpm_sh_shim_contains_user_precedence() {
         let content = build_pnpm_sh_shim(&sample_app_dir());
@@ -687,6 +699,7 @@ mod tests {
 
     /// issue #121：桌面端注入的 DSH_NODE（预检解析出的 node 路径）必须在
     /// 本地 node / 捆绑运行时解析之前被采用——shim 与应用预检保持一致。
+    #[cfg(windows)]
     #[test]
     fn cmd_shim_prefers_dsh_node_before_local_node() {
         let content = build_cmd_shim(&sample_app_dir(), &sample_dsh_home());
@@ -712,6 +725,7 @@ mod tests {
         assert!(content.contains("NODE:~4%"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn ps1_shim_prefers_dsh_node_before_local_node() {
         let content = build_ps1_shim(&sample_app_dir(), &sample_dsh_home());
@@ -740,7 +754,8 @@ mod tests {
         }
     }
 
-    /// 三种 shim 的版本门槛必须与应用预检及当前 DSH engines 保持一致。
+    /// Windows shim 的版本门槛必须与应用预检及当前 DSH engines 保持一致。
+    #[cfg(windows)]
     #[test]
     fn generated_shims_match_current_dsh_node_engine() {
         let cmd = build_cmd_shim(&sample_app_dir(), &sample_dsh_home());
@@ -752,7 +767,13 @@ mod tests {
         assert!(ps1.contains(r#"-match '^v(\d+)\.(\d+)\.(\d+)$'"#));
         assert!(ps1.contains("$major -eq 22 -and $minor -ge 19"));
         assert!(!ps1.contains("$major -eq 23"));
-        assert!(SH_NODE_RESOLVE.contains(r#"awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/"#));
+    }
+
+    /// Unix shim 的版本门槛必须与应用预检及当前 DSH engines 保持一致。
+    #[cfg(not(windows))]
+    #[test]
+    fn unix_shim_matches_current_dsh_node_engine() {
+        assert!(SH_NODE_RESOLVE.contains(r#"awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/'"#));
         assert!(SH_NODE_RESOLVE.contains("$MAJOR\" -eq 22 ] && [ \"$MINOR\" -ge 19"));
         assert!(!SH_NODE_RESOLVE.contains("$MAJOR\" -eq 23"));
     }
@@ -824,6 +845,7 @@ mod tests {
         assert!(content.contains(r"C:\Users\test\.dsh"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn cmd_shim_prefers_user_dsh() {
         let content = build_cmd_shim(&sample_app_dir(), &sample_dsh_home());
@@ -836,6 +858,7 @@ mod tests {
         assert!(user_at < bundled_at);
     }
 
+    #[cfg(windows)]
     #[test]
     fn ps1_shim_prefers_user_dsh() {
         let content = build_ps1_shim(&sample_app_dir(), &sample_dsh_home());

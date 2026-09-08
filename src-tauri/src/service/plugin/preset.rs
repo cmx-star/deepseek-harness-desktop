@@ -7,7 +7,9 @@
 
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(debug_assertions)]
+use std::path::Path;
 use tauri::{AppHandle, Manager};
 
 use crate::config;
