@@ -14,7 +14,7 @@ export interface DshConfigOptions {
   server?: TsdownOptions
   /** client entry 的 tsdown 选项（覆盖 common；noExternal 并入默认内联表）。 */
   client?: TsdownOptions & { noExternal?: Array<string | RegExp> }
-  /** 是否对 server entry 跑 publint（默认 true）。 */
+  /** 是否对 server entry 跑 publint（默认 false；workspace 插件由 deploy 校验产物）。 */
   publint?: boolean
 }
 
@@ -80,7 +80,11 @@ export function defineDshConfig(options: DshConfigOptions = {}) {
     outDir: 'dist',
     format: 'esm',
     outExtensions: () => ({ js: '.js' }),
-    publint: options.publint ?? true,
+    // publint packs each package in a temporary isolated directory. Its pack
+    // adapter cannot resolve this workspace's `workspace:*` plugin edges there,
+    // although pnpm deploy resolves them correctly. Keep it opt-in for packages
+    // that can be packed independently; deployment remains the release check.
+    publint: options.publint ?? false,
     external: dshExternal,
   }
 

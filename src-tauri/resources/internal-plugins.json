@@ -49,6 +49,13 @@
     "repoUrl": "https://github.com/dsh-tauri-desk/dsh-tauri-plugins/tree/main/packages/dsh-tauri-session"
   },
   {
+    "id": "dsh-tauri-tool-router",
+    "spec": "dsh-tauri-tool-router",
+    "name": "DSH Tauri Tool Router",
+    "description": "Dynamically routes model-facing tool schemas per request while preserving the complete runtime tool registry and permissions.",
+    "repoUrl": "https://github.com/dsh-tauri-desk/deepseek-harness-desktop/tree/main/packages/dsh-tauri-tool-router"
+  },
+  {
     "id": "dsh-tauri-pet",
     "spec": "dsh-tauri-pet",
     "name": "DSH Tauri Pet",
