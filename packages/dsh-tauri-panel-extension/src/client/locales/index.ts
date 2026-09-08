@@ -109,6 +109,8 @@ const zh: Record<string, string> = {
   globalError: '全局错误',
   connectivityOk: '连接成功',
   connectivityFailed: '连接失败',
+  checkLabel: '检查连接',
+  checkRunning: '检查中…',
 }
 
 const en: Record<string, string> = {
@@ -211,6 +213,8 @@ const en: Record<string, string> = {
   formatPaste: 'Paste a JSON config (wrapper or bare entry)',
   formatFill: 'Parse and switch to form',
   pasteTransportMismatch: 'The row transport is locked and differs from the pasted config.',
+  checkLabel: 'Check connection',
+  checkRunning: 'Checking…',
 }
 
 export function registerExtensionLocale(ctx: ExtensionClientContext): void {

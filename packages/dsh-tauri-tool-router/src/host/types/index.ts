@@ -15,4 +15,5 @@ export interface AgentLike {
 export interface ToolRouterState {
   full: boolean
   groups: Set<string>
+  mcpTools: Set<string>
 }
