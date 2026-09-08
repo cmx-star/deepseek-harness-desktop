@@ -13,9 +13,9 @@
 use crate::config;
 
 /// GitHub API 地址（未认证限流 60 次/小时/IP，仅供每次启动检查一次）
-const DSH_PKG_GITHUB_API: &str = "https://api.github.com/repos/dsh-tauri-desk/deepseek-harness-pkg";
+const DSH_PKG_GITHUB_API: &str = "https://api.github.com/repos/cmx-star/deepseek-harness-pkg";
 /// pkg 仓库 HTML 来源；`releases.atom` 走 github.com 而非 api.github.com，不受未认证限流约束。
-const DSH_PKG_REPO: &str = "https://github.com/dsh-tauri-desk/deepseek-harness-pkg";
+const DSH_PKG_REPO: &str = "https://github.com/cmx-star/deepseek-harness-pkg";
 const GITHUB_RELEASES_PAGE_SIZE: usize = 100;
 
 /// 最新 Harness 发行版信息（版本 tag + 对应 commit hash）
